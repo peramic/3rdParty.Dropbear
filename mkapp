@@ -1,0 +1,58 @@
+#!/bin/bash
+
+set -e
+set -x
+
+env
+
+. /usr/share/mkapp/functions
+
+echo "deb-src http://httpredir.debian.org/debian ${DIST} main" >> /etc/apt/sources.list
+
+apt-get update
+apt-get source -y dropbear
+
+cd dropbear-*
+
+sed -i -e '/^override_dh_auto_build:$/,/^$/d' debian/rules
+cat >> debian/rules <<EOF
+override_dh_auto_build:
+	make PROGRAMS="dropbear dbclient dropbearkey dropbearconvert scp"
+EOF
+tail -5 debian/rules
+
+sed -i -e '/^Package: dropbear-scp$/,/^$/d' debian/control
+sed -i -e '${/^$/d;}' debian/control
+cat >> debian/control <<EOF
+
+Package: dropbear-scp
+Architecture: any
+Depends: dropbear-bin (>= \${source:Version})
+Conflicts: openssh-client
+Multi-Arch: foreign
+Description: lightweight SSH2 server and client - scp
+EOF
+tail -10 debian/control
+
+echo "scp /usr/bin" >> debian/dropbear-scp.install
+
+sed -i -e '1p' debian/changelog
+sed -i -e '1s/)/+peramic0)/' -e "2i\\\n\\n  * Enables scp\\n\\n -- peraMIC <opensource@peraMIC.io>  \$(date -R)\\n" debian/changelog
+head -6 debian/changelog
+
+cd -
+
+for arch in $ARCH; do
+  apt-get -y build-dep -a${arch} dropbear
+  apt-get install -y libc6:${arch}
+  cd -
+  DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -B -j12 -a${arch} -i -I -Itarget --no-sign
+  cd -
+done
+
+mkdir target
+mv *_*.* target
+
+if [ "$PUBLISH" ]; then
+  publish_debs
+fi
